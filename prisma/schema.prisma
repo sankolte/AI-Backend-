@@ -17,10 +17,41 @@ datasource db {
 model User {
   id        String   @id @default(uuid())
   name      String
-  email     String @unique
+  email     String   @unique
   password  String
   createdAt DateTime @default(now()) @map("Created_At")
   updatedAt DateTime @updatedAt @map("Updated_At")
 
+  chats     Chat[]
+
   @@map("Users")
+}
+
+// TABLE NAMED AS CHAT
+
+model Chat {
+  id        String   @id @default(uuid())
+  title     String?
+  userId    String   @map("User_Id")
+  createdAt DateTime @default(now()) @map("Created_At")
+  updatedAt DateTime @updatedAt @map("Updated_At")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("Chats")
+}
+
+// TABLE NAMED AS MESSAGE
+
+model Message {
+  id        String   @id @default(uuid())
+  role      String   // "user" or "assistant"
+  content   String
+  chatId    String   @map("Chat_Id")
+  createdAt DateTime @default(now()) @map("Created_At")
+
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@map("Messages")
 }
