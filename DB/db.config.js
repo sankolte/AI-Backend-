@@ -1,4 +1,4 @@
-import { PrismaClient } from "../src/generated/prisma/index.js";
+import { PrismaClient } from "../src/generated/prisma/client.ts";
 
 // ../src/generated/prisma/index.js"  will automatcially generate chill
 

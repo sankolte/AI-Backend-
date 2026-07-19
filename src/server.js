@@ -1,13 +1,28 @@
 import express from "express";
 import "dotenv/config"
+
 import ExpressError from "./utils/expressError.js";
+
+import userRoute from "./routes/userRoute.js";
 const app = express();
 app.use(express.json());
 const port = process.env.port || 3000
 
+
+
 app.get("/api/health", (req, res) => {
     res.json({ status: 200, msg: "sab thik he ab tak" })
 })
+
+
+// user routes ka prefix
+app.use("/api/user",userRoute)
+
+
+
+
+
+
 
 
 //page not fouund wala error ke liye ek middleqware  > exception 
