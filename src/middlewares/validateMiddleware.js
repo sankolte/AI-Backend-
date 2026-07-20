@@ -1,17 +1,26 @@
-import userSchema from "../schema/user.schema.js";
+import { createUserSchema, updateUserSchema } from "../schema/user.schema.js";
 import ExpressError from "../utils/expressError.js";
 
-function validateUser(req,res,next){
+// validate data for creating a new user
+function validateCreateUser(req, res, next) {
+    const result = createUserSchema.safeParse(req.body);
 
-    const result = userSchema.safeParse(req.body);   // bascially this will validate 
-
-    if(result.error){
-        throw new ExpressError(400,result.error.message);
+    if (result.error) {
+        throw new ExpressError(400, result.error.message);
     }
 
     next();
-    
 }
 
-export default validateUser;
+// validate data for updating user profile
+function validateUpdateUser(req, res, next) {
+    const result = updateUserSchema.safeParse(req.body);
 
+    if (result.error) {
+        throw new ExpressError(400, result.error.message);
+    }
+
+    next();
+}
+
+export { validateCreateUser, validateUpdateUser };

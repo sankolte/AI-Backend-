@@ -18,7 +18,7 @@ model User {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
-  password  String
+  clerkId   String   @unique @map("Clerk_Id")
   createdAt DateTime @default(now()) @map("Created_At")
   updatedAt DateTime @updatedAt @map("Updated_At")
 

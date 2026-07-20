@@ -1,11 +1,16 @@
-import {z} from "zod";
+import { z } from "zod";
 
-const userSchema = z.object({
-    name : z.string().min(3).max(25),
-    email : z.string().email(),
-    password : z.string().min(6).max(25)
-})
+// schema for creating user (from frontend after Clerk signup)
+const createUserSchema = z.object({
+    clerkId: z.string().min(1, "clerkId is required"),
+    name: z.string().min(3).max(25),
+    email: z.string().email(),
+});
 
+// schema for updating user profile (name/email only, no password)
+const updateUserSchema = z.object({
+    name: z.string().min(3).max(25).optional(),
+    email: z.string().email().optional(),
+});
 
-
-export default userSchema
+export { createUserSchema, updateUserSchema };
