@@ -1,5 +1,6 @@
 import express from "express";
 import "dotenv/config"
+import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 
 import ExpressError from "./utils/expressError.js";
@@ -10,6 +11,12 @@ import webhookRoute from "./routes/webhookRoute.js";
 const app = express();
 const port = process.env.port || 3000
 
+
+// CORS - allow frontend to call our API
+app.use(cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+}));
 
 // Clerk webhook route MUST come before express.json() 
 // because webhooks need the raw body for signature verification

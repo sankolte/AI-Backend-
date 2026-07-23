@@ -3,3 +3,7 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# Frontend
+frontend/node_modules
+frontend/dist
