@@ -16,7 +16,7 @@ export default function Layout() {
         <div className="nav-container">
           <Link to="/" className="nav-logo" id="nav-logo">
             <span className="logo-dot" />
-            <span className="logo-text">AI Platform</span>
+            <span className="logo-text">Atlas</span>
           </Link>
 
           <div className="nav-right">
@@ -25,7 +25,7 @@ export default function Layout() {
             {isSignedIn ? (
               <div className="nav-auth">
                 <Link to="/dashboard" className="nav-link" id="nav-dashboard">
-                  Dashboard
+                  Workspace
                 </Link>
                 <UserButton
                   afterSignOutUrl="/"
@@ -57,7 +57,7 @@ export default function Layout() {
       </main>
 
       <footer className="footer">
-        <p>&copy; {new Date().getFullYear()} AI Platform. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} Atlas AI. Powered by OpenAI models.</p>
       </footer>
     </div>
   );

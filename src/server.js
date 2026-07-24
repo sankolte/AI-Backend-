@@ -7,6 +7,7 @@ import ExpressError from "./utils/expressError.js";
 
 import userRoute from "./routes/userRoute.js";
 import webhookRoute from "./routes/webhookRoute.js";
+import chatRoutes from "./routes/chat.routes.js";
 
 const app = express();
 const port = process.env.port || 3000
@@ -37,6 +38,10 @@ app.get("/api/health", (req, res) => {
 
 // user routes
 app.use("/api/user", userRoute)
+
+// chat and message routes
+app.use("/api/v1/chats", chatRoutes)
+
 
 
 
