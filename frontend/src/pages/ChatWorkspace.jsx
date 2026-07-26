@@ -13,6 +13,7 @@ import {
   renameChat,
   deleteChat,
   sendMessage,
+  streamMessage,
 } from "../utils/api";
 import { Bot, AlertCircle } from "lucide-react";
 
@@ -210,30 +211,39 @@ Your conversation and message data are persistently stored in your backend Postg
         setChats((prev) => [newChatObj, ...prev]);
       }
 
-      // 2. Post User Message to Backend DB
-      const userMsgRes = await sendMessage(token, targetChatId, {
-        role: "user",
-        content: promptText,
-      });
-
-      const userMsgObj = userMsgRes.data || userMsgRes;
-      setMessages((prev) => [...prev, userMsgObj]);
       setIsSending(true);
 
-      // 3. Generate response & post Assistant Message to Backend DB
-      setTimeout(async () => {
-        try {
-          const aiResponseText = generateAIResponse(promptText, selectedModel);
+      const tempUserMsgId = `user-${Date.now()}`;
+      const tempAiMsgId = `ai-${Date.now()}`;
 
-          const aiMsgRes = await sendMessage(token, targetChatId, {
-            role: "assistant",
-            content: aiResponseText,
-          });
+      // Optimistically insert user message and initial assistant message into UI state
+      setMessages((prev) => [
+        ...prev,
+        { id: tempUserMsgId, role: "user", content: promptText, createdAt: new Date().toISOString() },
+        { id: tempAiMsgId, role: "assistant", content: "", createdAt: new Date().toISOString() },
+      ]);
 
-          const aiMsgObj = aiMsgRes.data || aiMsgRes;
-          setMessages((prev) => [...prev, aiMsgObj]);
-
-          // Update chat timestamp and count in sidebar
+      // Call streaming backend SSE endpoint
+      await streamMessage(token, targetChatId, promptText, {
+        onUserMessage: (userMsg) => {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === tempUserMsgId ? userMsg : msg))
+          );
+        },
+        onChunk: (chunk) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === tempAiMsgId ? { ...msg, content: msg.content + chunk } : msg
+            )
+          );
+        },
+        onDone: (finalAiMsg) => {
+          if (finalAiMsg) {
+            setMessages((prev) =>
+              prev.map((msg) => (msg.id === tempAiMsgId ? finalAiMsg : msg))
+            );
+          }
+          setIsSending(false);
           setChats((prev) =>
             prev.map((c) =>
               c.id === targetChatId
@@ -245,13 +255,13 @@ Your conversation and message data are persistently stored in your backend Postg
                 : c
             )
           );
-        } catch (aiErr) {
-          console.error("Error saving AI response:", aiErr);
-          setError("Failed to save AI response.");
-        } finally {
+        },
+        onError: (err) => {
+          console.error("Streaming error:", err);
+          setError(err.message || "Error streaming response from AI.");
           setIsSending(false);
-        }
-      }, 1000);
+        },
+      });
     } catch (err) {
       console.error("Error sending message:", err);
       setError(err.message || "Failed to send message to server.");

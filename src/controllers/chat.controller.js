@@ -7,6 +7,7 @@ import {
   deleteChat as deleteChatService,
   sendMessage as sendMessageService,
   getMessages as getMessagesService,
+  streamMessage as streamMessageService,
 } from "../services/chat.service.js";
 
 // POST /api/v1/chats - Create new chat
@@ -62,3 +63,11 @@ export const getMessages = wrapAsync(async (req, res) => {
   const result = await getMessagesService(clerkId, chatId, req.query);
   res.status(200).json(result);
 });
+
+// POST /api/v1/chats/:chatId/messages/stream - Stream message & AI response via SSE
+export const streamMessage = wrapAsync(async (req, res) => {
+  const clerkId = req.clerkId;
+  const { chatId } = req.params;
+  await streamMessageService(clerkId, chatId, req.body, res);
+});
+

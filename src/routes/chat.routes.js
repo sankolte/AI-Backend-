@@ -17,6 +17,7 @@ import {
   deleteChat,
   sendMessage,
   getMessages,
+  streamMessage,
 } from "../controllers/chat.controller.js";
 
 const router = express.Router();
@@ -32,6 +33,7 @@ router.patch("/:chatId", validateRenameChat, renameChat);
 router.delete("/:chatId", deleteChat);
 
 // Message endpoints (nested under chats)
+router.post("/:chatId/messages/stream", validateSendMessage, streamMessage);
 router.post("/:chatId/messages", validateSendMessage, sendMessage);
 router.get("/:chatId/messages", validateGetMessagesQuery, getMessages);
 

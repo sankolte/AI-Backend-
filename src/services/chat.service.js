@@ -1,5 +1,6 @@
 import prisma from "../../DB/db.config.js";
 import ExpressError from "../utils/expressError.js";
+import { getAICompletionStream } from "./ai.service.js";
 
 /**
  * Helper to get internal database user ID from Clerk user ID.
@@ -201,3 +202,93 @@ export async function getMessages(clerkId, chatId, { limit = 50, cursor } = {}) 
     nextCursor,
   };
 }
+
+/**
+ * Handle streaming AI response for a chat message via SSE
+ */
+export async function streamMessage(clerkId, chatId, { content }, res) {
+  const userId = await getUserIdByClerkId(clerkId);
+  await verifyChatOwnership(chatId, userId);
+
+  // 1. Save user message to database
+  const userMessage = await prisma.message.create({
+    data: {
+      chatId,
+      role: "user",
+      content,
+    },
+  });
+
+  // 2. Fetch history (last 15 messages for context)
+  const pastMessages = await prisma.message.findMany({
+    where: { chatId },
+    orderBy: { createdAt: "asc" },
+    take: 15,
+    select: {
+      role: true,
+      content: true,
+    },
+  });
+
+  // Format messages for OpenAI API
+  const formattedMessages = pastMessages.map((msg) => ({
+    role: msg.role === "assistant" ? "assistant" : "user",
+    content: msg.content,
+  }));
+
+  // 3. Set SSE Headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (res.flushHeaders) res.flushHeaders();
+
+  // Emit user_message event
+  res.write(`data: ${JSON.stringify({ type: "user_message", data: userMessage })}\n\n`);
+
+  let fullAssistantContent = "";
+
+  try {
+    // 4. Call AI completion stream
+    const stream = await getAICompletionStream(formattedMessages);
+
+    for await (const chunk of stream) {
+      const deltaContent = chunk.choices[0]?.delta?.content || "";
+      if (deltaContent) {
+        fullAssistantContent += deltaContent;
+        res.write(
+          `data: ${JSON.stringify({ type: "chunk", content: deltaContent })}\n\n`
+        );
+      }
+    }
+
+    // 5. Save assistant response to DB
+    const assistantMessage = await prisma.message.create({
+      data: {
+        chatId,
+        role: "assistant",
+        content: fullAssistantContent,
+      },
+    });
+
+    // Touch chat updatedAt
+    await prisma.chat.update({
+      where: { id: chatId },
+      data: { updatedAt: new Date() },
+    });
+
+    // Send completion event and DONE signal
+    res.write(
+      `data: ${JSON.stringify({ type: "done", data: assistantMessage })}\n\n`
+    );
+    res.write(`data: [DONE]\n\n`);
+  } catch (error) {
+    console.error("Error during AI streaming:", error);
+    res.write(
+      `data: ${JSON.stringify({ type: "error", message: error.message || "AI stream error" })}\n\n`
+    );
+  } finally {
+    res.end();
+  }
+}
+
