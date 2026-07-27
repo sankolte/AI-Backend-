@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useUser, useAuth } from "@clerk/clerk-react";
 import { useParams, useNavigate } from "react-router-dom";
 import ChatSidebar from "../components/chat/ChatSidebar";
@@ -12,14 +12,13 @@ import {
   fetchChatById,
   renameChat,
   deleteChat,
-  sendMessage,
   streamMessage,
 } from "../utils/api";
 import { Bot, AlertCircle } from "lucide-react";
 
 export default function ChatWorkspace() {
   const { user } = useUser();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
   const { chatId: urlChatId } = useParams();
 
@@ -44,75 +43,95 @@ export default function ChatWorkspace() {
     scrollToBottom();
   }, [messages, isSending]);
 
-  // Load all chats on mount
-  useEffect(() => {
-    loadUserChats();
-  }, []);
-
-  // Synchronize activeChatId with URL or select first chat if needed
+  // Sync activeChatId state with URL parameters
   useEffect(() => {
     if (urlChatId) {
       setActiveChatId(urlChatId);
+      localStorage.setItem("lastActiveChatId", urlChatId);
+    } else {
+      setActiveChatId(null);
     }
   }, [urlChatId]);
 
-  // Load active chat details & messages whenever activeChatId changes
+  // Fetch all conversations belonging to the user once authentication is ready
+  const loadUserChats = useCallback(async () => {
+    if (!isAuthLoaded || !isSignedIn) return;
+    setLoadingChats(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const data = await fetchChats(token, { limit: 50 });
+      const fetchedChats = data.chats || [];
+      setChats(fetchedChats);
+
+      // If on base /dashboard without URL param, attempt restoring last active chat or select first
+      if (!urlChatId && fetchedChats.length > 0) {
+        const savedChatId = localStorage.getItem("lastActiveChatId");
+        const chatToSelect = fetchedChats.find((c) => c.id === savedChatId) || fetchedChats[0];
+        if (chatToSelect) {
+          setActiveChatId(chatToSelect.id);
+          navigate(`/dashboard/${chatToSelect.id}`, { replace: true });
+        }
+      }
+    } catch (err) {
+      console.error("Error loading chats:", err);
+      setError("Could not load conversations. Please ensure backend server is running.");
+    } finally {
+      setLoadingChats(false);
+    }
+  }, [isAuthLoaded, isSignedIn, getToken, urlChatId, navigate]);
+
+  useEffect(() => {
+    loadUserChats();
+  }, [isAuthLoaded, isSignedIn, loadUserChats]);
+
+  // Load messages for the currently active chat ID
+  const loadChatMessages = useCallback(
+    async (chatId) => {
+      if (!isAuthLoaded || !isSignedIn || !chatId) return;
+      setLoadingMessages(true);
+      setError(null);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const chat = await fetchChatById(token, chatId);
+        setMessages(chat.messages || []);
+      } catch (err) {
+        console.error("Error loading chat messages:", err);
+        setError("Could not fetch messages for this conversation.");
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [isAuthLoaded, isSignedIn, getToken]
+  );
+
   useEffect(() => {
     if (activeChatId) {
       loadChatMessages(activeChatId);
     } else {
       setMessages([]);
     }
-  }, [activeChatId]);
+  }, [activeChatId, loadChatMessages]);
 
-  const loadUserChats = async () => {
-    setLoadingChats(true);
+  // Start a new blank conversation
+  const handleNewChat = () => {
     setError(null);
-    try {
-      const token = await getToken();
-      const data = await fetchChats(token, { limit: 50 });
-      setChats(data.chats || []);
-    } catch (err) {
-      console.error("Error loading chats:", err);
-      setError("Could not connect to backend server. Make sure node src/server.js is running.");
-    } finally {
-      setLoadingChats(false);
-    }
+    setActiveChatId(null);
+    setMessages([]);
+    navigate("/dashboard");
   };
 
-  const loadChatMessages = async (chatId) => {
-    setLoadingMessages(true);
-    try {
-      const token = await getToken();
-      const chat = await fetchChatById(token, chatId);
-      setMessages(chat.messages || []);
-    } catch (err) {
-      console.error("Error loading chat messages:", err);
-      setError("Could not fetch messages for this conversation.");
-    } finally {
-      setLoadingMessages(false);
-    }
-  };
-
-  const handleNewChat = async () => {
-    setError(null);
-    try {
-      const token = await getToken();
-      const res = await createChat(token, { title: "New Conversation" });
-      const newChatObj = res.chat || res;
-      setChats((prev) => [newChatObj, ...prev]);
-      setActiveChatId(newChatObj.id);
-      setMessages([]);
-    } catch (err) {
-      console.error("Error creating chat:", err);
-      setError("Failed to create new conversation.");
-    }
-  };
-
+  // Select an existing conversation from the side panel
   const handleSelectChat = (chatId) => {
     setActiveChatId(chatId);
+    localStorage.setItem("lastActiveChatId", chatId);
+    navigate(`/dashboard/${chatId}`);
   };
 
+  // Rename a conversation title
   const handleRenameChat = async (chatId, newTitle) => {
     try {
       const token = await getToken();
@@ -127,14 +146,17 @@ export default function ChatWorkspace() {
     }
   };
 
+  // Delete a conversation
   const handleDeleteChat = async (chatId) => {
     try {
       const token = await getToken();
       await deleteChat(token, chatId);
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (activeChatId === chatId) {
+        localStorage.removeItem("lastActiveChatId");
         setActiveChatId(null);
         setMessages([]);
+        navigate("/dashboard");
       }
     } catch (err) {
       console.error("Error deleting chat:", err);
@@ -142,56 +164,7 @@ export default function ChatWorkspace() {
     }
   };
 
-  // Generate OpenAI response simulation (until OpenAI API SDK is wired up)
-  const generateAIResponse = (userPrompt, model) => {
-    const promptLower = userPrompt.toLowerCase();
-
-    if (promptLower.includes("express") || promptLower.includes("backend") || promptLower.includes("controller")) {
-      return `Here is how Express Controller validation works in **Atlas AI** (${model}):
-
-\`\`\`javascript
-// Express controller using wrapAsync and Zod validation
-import wrapAsync from "../utils/wrapAsync.js";
-import { createChatService } from "../services/chat.service.js";
-
-export const createChat = wrapAsync(async (req, res) => {
-  const clerkId = req.clerkId;
-  const chat = await createChatService(clerkId, req.body);
-  res.status(201).json({ message: "Chat created successfully", chat });
-});
-\`\`\`
-
-All requests are validated by Zod schemas and persisted directly into PostgreSQL via Prisma ORM!`;
-    }
-
-    if (promptLower.includes("openai") || promptLower.includes("sdk") || promptLower.includes("stream")) {
-      return `To connect the official **OpenAI Node.js SDK** to Atlas AI, install \`openai\` and initialize it in your service:
-
-\`\`\`javascript
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-export async function getOpenAIStream(prompt) {
-  const response = await openai.chat.completions.create({
-    model: "${model}",
-    messages: [{ role: "user", content: prompt }],
-    stream: true,
-  });
-  return response;
-}
-\`\`\`
-
-Atlas is pre-configured with OpenAI model selection options (\`gpt-4o\`, \`gpt-4o-mini\`, \`o3-mini\`, \`o1\`)!`;
-    }
-
-    return `I have received your query via **Atlas AI** using model **${model}**:
-
-> "${userPrompt}"
-
-Your conversation and message data are persistently stored in your backend PostgreSQL database via \`/api/v1/chats\`.`;
-  };
-
+  // Send message and stream AI response via SSE
   const handleSendMessage = async (promptText) => {
     if (!promptText.trim() || isSending) return;
 
@@ -200,6 +173,10 @@ Your conversation and message data are persistently stored in your backend Postg
 
     try {
       const token = await getToken();
+      if (!token) {
+        setError("Authentication session expired. Please sign in again.");
+        return;
+      }
 
       // 1. Create a new conversation in backend if none is active
       if (!targetChatId) {
@@ -209,6 +186,8 @@ Your conversation and message data are persistently stored in your backend Postg
         targetChatId = newChatObj.id;
         setActiveChatId(newChatObj.id);
         setChats((prev) => [newChatObj, ...prev]);
+        localStorage.setItem("lastActiveChatId", targetChatId);
+        navigate(`/dashboard/${targetChatId}`, { replace: true });
       }
 
       setIsSending(true);
@@ -216,7 +195,7 @@ Your conversation and message data are persistently stored in your backend Postg
       const tempUserMsgId = `user-${Date.now()}`;
       const tempAiMsgId = `ai-${Date.now()}`;
 
-      // Optimistically insert user message and initial assistant message into UI state
+      // Optimistically insert user message and empty assistant response box into UI state
       setMessages((prev) => [
         ...prev,
         { id: tempUserMsgId, role: "user", content: promptText, createdAt: new Date().toISOString() },
@@ -225,6 +204,7 @@ Your conversation and message data are persistently stored in your backend Postg
 
       // Call streaming backend SSE endpoint
       await streamMessage(token, targetChatId, promptText, {
+        model: selectedModel,
         onUserMessage: (userMsg) => {
           setMessages((prev) =>
             prev.map((msg) => (msg.id === tempUserMsgId ? userMsg : msg))

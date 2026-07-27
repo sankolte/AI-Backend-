@@ -206,7 +206,7 @@ export async function getMessages(clerkId, chatId, { limit = 50, cursor } = {}) 
 /**
  * Handle streaming AI response for a chat message via SSE
  */
-export async function streamMessage(clerkId, chatId, { content }, res) {
+export async function streamMessage(clerkId, chatId, { content, model = "gpt-4o-mini" }, res) {
   const userId = await getUserIdByClerkId(clerkId);
   await verifyChatOwnership(chatId, userId);
 
@@ -219,16 +219,19 @@ export async function streamMessage(clerkId, chatId, { content }, res) {
     },
   });
 
-  // 2. Fetch history (last 15 messages for context)
-  const pastMessages = await prisma.message.findMany({
+  // 2. Fetch recent conversation context (latest 15 messages)
+  const rawPastMessages = await prisma.message.findMany({
     where: { chatId },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
     take: 15,
     select: {
       role: true,
       content: true,
     },
   });
+
+  // Reverse so context is ordered chronologically (oldest to newest)
+  const pastMessages = rawPastMessages.reverse();
 
   // Format messages for OpenAI API
   const formattedMessages = pastMessages.map((msg) => ({
@@ -249,8 +252,8 @@ export async function streamMessage(clerkId, chatId, { content }, res) {
   let fullAssistantContent = "";
 
   try {
-    // 4. Call AI completion stream
-    const stream = await getAICompletionStream(formattedMessages);
+    // 4. Call AI completion stream with requested model
+    const stream = await getAICompletionStream(formattedMessages, model);
 
     for await (const chunk of stream) {
       const deltaContent = chunk.choices[0]?.delta?.content || "";

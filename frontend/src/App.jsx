@@ -34,6 +34,22 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/dashboard/:chatId"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/c/:chatId"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
           </Routes>
         </BrowserRouter>

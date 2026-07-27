@@ -4,6 +4,7 @@ import ExpressError from "../utils/expressError.js";
 const sendMessageSchema = z.object({
   role: z.enum(["user", "assistant"]).default("user"),
   content: z.string().trim().min(1, "Message content is required"),
+  model: z.string().optional().default("gpt-4o-mini"),
 });
 
 const getMessagesQuerySchema = z.object({

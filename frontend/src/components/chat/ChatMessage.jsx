@@ -1,22 +1,22 @@
 import { useState } from "react";
 import { Bot, User, Copy, Check, Sparkles, Terminal } from "lucide-react";
 
-export default function ChatMessage({ message, isLatest }) {
+export default function ChatMessage({ message }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(message.content);
+    navigator.clipboard.writeText(message.content || "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Helper to format code blocks cleanly if present in markdown format ```lang ... ```
+  // Helper to format code blocks cleanly even while streaming
   const renderFormattedContent = (text) => {
     if (!text) return null;
 
-    const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
     const parts = [];
+    const codeBlockRegex = /```(\w*)\n?([\s\S]*?)(?:```|$)/g;
     let lastIndex = 0;
     let match;
 
@@ -28,13 +28,17 @@ export default function ChatMessage({ message, isLatest }) {
         });
       }
 
+      const isComplete = match[0].endsWith("```");
+      const codeContent = isComplete ? match[2].trim() : match[2];
+
       parts.push({
         type: "code",
         language: match[1] || "code",
-        code: match[2].trim(),
+        code: codeContent,
       });
 
       lastIndex = match.index + match[0].length;
+      if (!isComplete) break;
     }
 
     if (lastIndex < text.length) {
@@ -45,15 +49,15 @@ export default function ChatMessage({ message, isLatest }) {
     }
 
     if (parts.length === 0) {
-      return <p className="msg-paragraph">{text}</p>;
+      return <div className="msg-text-block">{text}</div>;
     }
 
     return parts.map((part, index) => {
       if (part.type === "text") {
         return (
-          <p key={index} className="msg-paragraph">
+          <div key={index} className="msg-text-block">
             {part.content}
-          </p>
+          </div>
         );
       }
 
@@ -61,12 +65,10 @@ export default function ChatMessage({ message, isLatest }) {
         <div key={index} className="code-block-container">
           <div className="code-block-header">
             <span className="code-lang">
-              <Terminal size={13} /> {part.language}
+              <Terminal size={13} /> {part.language || "code"}
             </span>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(part.code);
-              }}
+              onClick={() => navigator.clipboard.writeText(part.code)}
               className="code-copy-btn"
               title="Copy code"
             >

@@ -63,7 +63,7 @@ export async function fetchMessages(token, chatId, { limit = 50, cursor } = {}) 
   return fetchWithAuth(url, token);
 }
 
-export async function streamMessage(token, chatId, content, { onChunk, onDone, onError, onUserMessage }) {
+export async function streamMessage(token, chatId, content, { onChunk, onDone, onError, onUserMessage, model = "gpt-4o-mini" } = {}) {
   try {
     const res = await fetch(`${API_URL}/api/v1/chats/${chatId}/messages/stream`, {
       method: "POST",
@@ -71,7 +71,7 @@ export async function streamMessage(token, chatId, content, { onChunk, onDone, o
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, model }),
     });
 
     if (!res.ok) {
