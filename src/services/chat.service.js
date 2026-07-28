@@ -7,20 +7,38 @@ import { getAICompletionStream } from "./ai.service.js";
  * Auto-provisions user in Postgres DB if authenticated via Clerk but not yet synced.
  */
 async function getUserIdByClerkId(clerkId) {
+  if (!clerkId) {
+    throw new ExpressError(401, "Authentication required: missing clerkId");
+  }
+
   let user = await prisma.user.findUnique({
     where: { clerkId },
     select: { id: true },
   });
 
   if (!user) {
-    user = await prisma.user.create({
-      data: {
-        clerkId,
-        name: "User",
-        email: `${clerkId}@clerk.user`,
-      },
+    const fallbackEmail = `${clerkId}@clerk.user`;
+    const existingEmailUser = await prisma.user.findUnique({
+      where: { email: fallbackEmail },
       select: { id: true },
     });
+
+    if (existingEmailUser) {
+      user = await prisma.user.update({
+        where: { id: existingEmailUser.id },
+        data: { clerkId },
+        select: { id: true },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: {
+          clerkId,
+          name: "User",
+          email: fallbackEmail,
+        },
+        select: { id: true },
+      });
+    }
   }
 
   return user.id;
@@ -30,6 +48,10 @@ async function getUserIdByClerkId(clerkId) {
  * Helper to verify chat existence and ownership
  */
 async function verifyChatOwnership(chatId, userId) {
+  if (!chatId || typeof chatId !== "string") {
+    throw new ExpressError(400, "Invalid conversation ID");
+  }
+
   const chat = await prisma.chat.findUnique({
     where: { id: chatId },
   });

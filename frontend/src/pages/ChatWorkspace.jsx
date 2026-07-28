@@ -33,6 +33,7 @@ export default function ChatWorkspace() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const sendingChatIdRef = useRef(null);
 
   // Auto-scroll to bottom of chat
   const scrollToBottom = () => {
@@ -53,35 +54,35 @@ export default function ChatWorkspace() {
     }
   }, [urlChatId]);
 
-  // Fetch all conversations belonging to the user once authentication is ready
+  // Fetch all conversations belonging to the user ONCE when authentication is ready
   const loadUserChats = useCallback(async () => {
-    if (!isAuthLoaded || !isSignedIn) return;
+    if (!isAuthLoaded || !isSignedIn) {
+      return;
+    }
     setLoadingChats(true);
     setError(null);
     try {
-      const token = await getToken();
-      if (!token) return;
+      let token = await getToken();
+      if (!token) {
+        // Wait briefly for Clerk session token hydration
+        await new Promise((r) => setTimeout(r, 400));
+        token = await getToken();
+      }
+      if (!token) {
+        console.warn("[loadUserChats] No token received from Clerk after retry.");
+        return;
+      }
 
       const data = await fetchChats(token, { limit: 50 });
       const fetchedChats = data.chats || [];
       setChats(fetchedChats);
-
-      // If on base /dashboard without URL param, attempt restoring last active chat or select first
-      if (!urlChatId && fetchedChats.length > 0) {
-        const savedChatId = localStorage.getItem("lastActiveChatId");
-        const chatToSelect = fetchedChats.find((c) => c.id === savedChatId) || fetchedChats[0];
-        if (chatToSelect) {
-          setActiveChatId(chatToSelect.id);
-          navigate(`/dashboard/${chatToSelect.id}`, { replace: true });
-        }
-      }
     } catch (err) {
       console.error("Error loading chats:", err);
-      setError("Could not load conversations. Please ensure backend server is running.");
+      setError(err.message || "Failed to load conversations.");
     } finally {
       setLoadingChats(false);
     }
-  }, [isAuthLoaded, isSignedIn, getToken, urlChatId, navigate]);
+  }, [isAuthLoaded, isSignedIn, getToken]);
 
   useEffect(() => {
     loadUserChats();
@@ -91,16 +92,29 @@ export default function ChatWorkspace() {
   const loadChatMessages = useCallback(
     async (chatId) => {
       if (!isAuthLoaded || !isSignedIn || !chatId) return;
+
+      // Skip fetching if currently streaming/sending messages for this exact chat
+      if (sendingChatIdRef.current === chatId) {
+        return;
+      }
+
       setLoadingMessages(true);
       setError(null);
       try {
-        const token = await getToken();
+        let token = await getToken();
+        if (!token) {
+          await new Promise((r) => setTimeout(r, 400));
+          token = await getToken();
+        }
         if (!token) return;
+
         const chat = await fetchChatById(token, chatId);
-        setMessages(chat.messages || []);
+        if (sendingChatIdRef.current !== chatId) {
+          setMessages(chat.messages || []);
+        }
       } catch (err) {
         console.error("Error loading chat messages:", err);
-        setError("Could not fetch messages for this conversation.");
+        setError(err.message || "Could not fetch messages for this conversation.");
       } finally {
         setLoadingMessages(false);
       }
@@ -119,6 +133,7 @@ export default function ChatWorkspace() {
   // Start a new blank conversation
   const handleNewChat = () => {
     setError(null);
+    sendingChatIdRef.current = null;
     setActiveChatId(null);
     setMessages([]);
     navigate("/dashboard");
@@ -126,6 +141,9 @@ export default function ChatWorkspace() {
 
   // Select an existing conversation from the side panel
   const handleSelectChat = (chatId) => {
+    if (chatId === activeChatId) return;
+    setError(null);
+    sendingChatIdRef.current = null;
     setActiveChatId(chatId);
     localStorage.setItem("lastActiveChatId", chatId);
     navigate(`/dashboard/${chatId}`);
@@ -154,6 +172,7 @@ export default function ChatWorkspace() {
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (activeChatId === chatId) {
         localStorage.removeItem("lastActiveChatId");
+        sendingChatIdRef.current = null;
         setActiveChatId(null);
         setMessages([]);
         navigate("/dashboard");
@@ -180,14 +199,26 @@ export default function ChatWorkspace() {
 
       // 1. Create a new conversation in backend if none is active
       if (!targetChatId) {
-        const titleSnippet = promptText.length > 30 ? `${promptText.slice(0, 30)}...` : promptText;
+        const titleSnippet =
+          promptText.length > 35 ? `${promptText.slice(0, 35)}...` : promptText;
         const createRes = await createChat(token, { title: titleSnippet });
         const newChatObj = createRes.chat || createRes;
-        targetChatId = newChatObj.id;
-        setActiveChatId(newChatObj.id);
-        setChats((prev) => [newChatObj, ...prev]);
+
+        const chatWithMeta = {
+          ...newChatObj,
+          _count: { messages: 0 },
+        };
+
+        targetChatId = chatWithMeta.id;
+        sendingChatIdRef.current = targetChatId;
+        setActiveChatId(targetChatId);
+
+        // Prepend new conversation to sidebar list immediately
+        setChats((prev) => [chatWithMeta, ...prev.filter((c) => c.id !== targetChatId)]);
         localStorage.setItem("lastActiveChatId", targetChatId);
         navigate(`/dashboard/${targetChatId}`, { replace: true });
+      } else {
+        sendingChatIdRef.current = targetChatId;
       }
 
       setIsSending(true);
@@ -224,28 +255,33 @@ export default function ChatWorkspace() {
             );
           }
           setIsSending(false);
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === targetChatId
-                ? {
-                    ...c,
-                    updatedAt: new Date().toISOString(),
-                    _count: { messages: (c._count?.messages || 0) + 2 },
-                  }
-                : c
-            )
-          );
+          sendingChatIdRef.current = null;
+
+          // Update sidebar list: move active chat to top and update message count
+          setChats((prev) => {
+            const chatIdx = prev.findIndex((c) => c.id === targetChatId);
+            if (chatIdx < 0) return prev;
+            const updated = {
+              ...prev[chatIdx],
+              updatedAt: new Date().toISOString(),
+              _count: { messages: (prev[chatIdx]._count?.messages || 0) + 2 },
+            };
+            const rest = prev.filter((c) => c.id !== targetChatId);
+            return [updated, ...rest];
+          });
         },
         onError: (err) => {
           console.error("Streaming error:", err);
           setError(err.message || "Error streaming response from AI.");
           setIsSending(false);
+          sendingChatIdRef.current = null;
         },
       });
     } catch (err) {
       console.error("Error sending message:", err);
       setError(err.message || "Failed to send message to server.");
       setIsSending(false);
+      sendingChatIdRef.current = null;
     }
   };
 

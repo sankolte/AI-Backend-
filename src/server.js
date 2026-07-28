@@ -55,14 +55,15 @@ app.use((req, res, next) => {
 
 // gloabal error handler > sab idahr ayaege kuch bhi bacckchodi ho >>
 app.use((err, req, res, next) => {
+    console.error("Unhandled Backend Error:", err);
     let { statusCode, message } = err;
     if (!statusCode) {
         statusCode = 500;
-        message = "internal server error";
+        message = err.message || "internal server error";
     }
 
-    res.status(statusCode).json({ message, statusCode })
-})
+    res.status(statusCode).json({ message, statusCode });
+});
 
 
 app.listen(port, () => {

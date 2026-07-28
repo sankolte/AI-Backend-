@@ -37,6 +37,6 @@ export const validateGetChatsQuery = (req, res, next) => {
   if (result.error) {
     throw new ExpressError(400, result.error.issues?.[0]?.message || result.error.message);
   }
-  req.query = result.data;
+  Object.assign(req.query, result.data);
   next();
 };
