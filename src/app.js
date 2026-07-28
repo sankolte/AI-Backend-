@@ -39,6 +39,11 @@ app.use(express.json());
 // Clerk middleware
 app.use(clerkMiddleware());
 
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({ status: 200, message: "AI Backend API is up and running on Vercel" });
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: 200, msg: "Backend API is up and running" });
