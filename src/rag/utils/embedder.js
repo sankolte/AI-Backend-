@@ -1,0 +1,1 @@
+// Embedding generator utility
